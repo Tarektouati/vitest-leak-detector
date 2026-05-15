@@ -1,0 +1,56 @@
+{
+  "name": "vitest-leak-detector",
+  "version": "0.1.0",
+  "description": "Vitest plugin to detect async resource leaks between tests using async_hooks",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./setup": {
+      "types": "./dist/setup.d.ts",
+      "import": "./dist/setup.js",
+      "require": "./dist/setup.cjs"
+    },
+    "./reporter": {
+      "types": "./dist/reporter.d.ts",
+      "import": "./dist/reporter.js",
+      "require": "./dist/reporter.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "peerDependencies": {
+    "vitest": ">=4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.6"
+  },
+  "keywords": [
+    "vitest",
+    "plugin",
+    "leak",
+    "async",
+    "async-hooks",
+    "testing"
+  ],
+  "license": "MIT"
+}
