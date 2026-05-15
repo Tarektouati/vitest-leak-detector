@@ -66,6 +66,7 @@ afterEach(() => {
   if (activeResources.size === 0) return
 
   const timestamp = Date.now()
+  let ndjson = ''
 
   for (const [, resource] of activeResources) {
     const record: LeakRecord = {
@@ -80,8 +81,9 @@ afterEach(() => {
       console.warn(`[leak-detector] "${resource.testName}": ${resource.type}\n${resource.stack}`)
     }
 
-    writeFileSync(LEAK_FILE, JSON.stringify(record) + '\n', { flag: 'a' })
+    ndjson += JSON.stringify(record) + '\n'
   }
 
+  writeFileSync(LEAK_FILE, ndjson, { flag: 'a' })
   activeResources.clear()
 })
