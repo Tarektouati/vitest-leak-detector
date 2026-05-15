@@ -1,5 +1,6 @@
 import type { Reporter } from 'vitest/reporters'
 import { readdirSync, readFileSync, unlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { LeakRecord } from './types.js'
 
@@ -12,8 +13,9 @@ const DIM = '\x1b[2m'
 export default class LeakDetectorReporter implements Reporter {
   onTestRunEnd(): void {
     let leakFiles: string[]
+    const tmp = tmpdir()
     try {
-      leakFiles = readdirSync('/tmp').filter((f) => /^vitest-leaks-\d+\.ndjson$/.test(f))
+      leakFiles = readdirSync(tmp).filter((f) => /^vitest-leaks-\d+\.ndjson$/.test(f))
     } catch {
       return
     }
@@ -23,7 +25,7 @@ export default class LeakDetectorReporter implements Reporter {
     const allLeaks: LeakRecord[] = []
 
     for (const file of leakFiles) {
-      const filePath = join('/tmp', file)
+      const filePath = join(tmp, file)
       try {
         const lines = readFileSync(filePath, 'utf-8').split('\n').filter(Boolean)
         for (const line of lines) {
