@@ -1,10 +1,12 @@
 import { createHook } from 'node:async_hooks'
 import { writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { beforeEach, afterEach } from 'vitest'
 import type { LeakDetectorOptions, LeakRecord } from './types.js'
 import { shouldTrack, filterStack } from './utils.js'
 
-const LEAK_FILE = `/tmp/vitest-leaks-${process.pid}.ndjson`
+const LEAK_FILE = join(tmpdir(), `vitest-leaks-${process.pid}.ndjson`)
 
 let opts: Required<LeakDetectorOptions> = {
   trackPromises: false,
