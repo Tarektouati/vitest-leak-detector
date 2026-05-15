@@ -1,5 +1,6 @@
 import { ClockWidget } from '../components/ClockWidget'
 import { DataLoader } from '../components/DataLoader'
+import { AnalyticsTracker } from '../components/AnalyticsTracker'
 
 export default function Home() {
   return (
@@ -10,12 +11,14 @@ export default function Home() {
         <code>vitest-leak-detector</code>. Run <code>pnpm test</code> to see the
         reporter output.
       </p>
+      {/* Renders null — fires a fire-and-forget analytics call */}
+      <AnalyticsTracker event="page_view" />
       <section>
-        <h2>Clock (Interval leak)</h2>
+        <h2>Clock (Timeout leak via setInterval)</h2>
         <ClockWidget />
       </section>
       <section>
-        <h2>Data Loader (Timeout leak)</h2>
+        <h2>Data Loader (Timeout leak via setTimeout)</h2>
         <DataLoader query="next.js" />
       </section>
     </main>
