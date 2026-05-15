@@ -4,7 +4,7 @@ A zero-dependency Vitest plugin that detects async resource leaks between tests 
 
 ## Requirements
 
-- Node.js ≥ 22
+- Node.js ≥ 24
 - Vitest ≥ 4.0.0
 
 ## Installation
