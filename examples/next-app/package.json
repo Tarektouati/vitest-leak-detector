@@ -1,0 +1,25 @@
+{
+  "name": "example-next-app",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "next": "^15",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16",
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react-oxc": "^0.1",
+    "jsdom": "^26",
+    "typescript": "^5",
+    "vitest": "^4",
+    "vitest-leak-detector": "workspace:*"
+  }
+}
