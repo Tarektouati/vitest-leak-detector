@@ -50,12 +50,13 @@ At the end of each test, any resources that were created but not destroyed are w
 
 ## Configuration
 
-Call `configureLeakDetector` at the top of your setup file (before the hooks register) or in a global setup:
+`configureLeakDetector` must be called **before the first test runs** — i.e. at the top of the same setup file, before any `import` side-effects that might trigger async resources. Options are read at `beforeEach`/`afterEach` time, so calling this at module scope in the setup file is always safe.
 
 ```ts
-// vitest-setup.ts
+// vitest-setup.ts  ← referenced in setupFiles
 import { configureLeakDetector } from 'vitest-leak-detector/setup'
 
+// Call before any other setup so options are in effect from the first test.
 configureLeakDetector({
   trackPromises: false,  // default: false
   trackTimers: true,     // default: true
@@ -65,6 +66,8 @@ configureLeakDetector({
   ignoreTypes: [],       // additional resource types to skip
 })
 ```
+
+> **Note:** Calling `configureLeakDetector` from a Vitest `globalSetup` file will **not** work — global setup runs in a separate process before workers start. Call it from a file listed in `setupFiles` instead.
 
 ## Example output
 
