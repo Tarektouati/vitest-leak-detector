@@ -56,7 +56,7 @@ hook.enable()
 
 beforeEach(({ task }) => {
   currentTestName = task.name
-  currentTestFile = task.file?.filepath ?? ''
+  currentTestFile = task.file?.filepath ?? '<unknown>'
   trackingEnabled = true
 })
 
