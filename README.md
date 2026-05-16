@@ -1,5 +1,9 @@
 # vitest-leak-detector
 
+[![TypeScript badge](https://img.shields.io/badge/-TypeScript-3178C6?logo=typescript&logoColor=FFFFFF&labelColor=000000)](https://www.typescriptlang.org) [![Vitest badge](https://img.shields.io/badge/-Vitest%20plugin-6E9F18?logo=vitest&logoColor=FFFFFF&labelColor=000000)](https://vitest.dev) [![Node.js badge](https://img.shields.io/badge/Node.js-%E2%89%A524-5FA04E?logo=nodedotjs&logoColor=FFFFFF&labelColor=000000)](https://nodejs.org)
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE) [![CI](https://github.com/Tarektouati/vitest-leak-detector/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Tarektouati/vitest-leak-detector/actions/workflows/ci.yml)
+
 A zero-dependency Vitest plugin that detects async resource leaks between tests using Node's `async_hooks`. Identifies which tests leave behind uncleaned timers, open sockets, or pending HTTP requests.
 
 ## Requirements
