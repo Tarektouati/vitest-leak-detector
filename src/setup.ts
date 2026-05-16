@@ -14,6 +14,7 @@ let opts: Required<LeakDetectorOptions> = {
   trackNetwork: true,
   stackDepth: 6,
   warnInline: true,
+  failOnLeak: false,
   ignoreTypes: [],
 }
 
@@ -68,6 +69,8 @@ afterEach(() => {
   const timestamp = Date.now()
   let ndjson = ''
 
+  const leakCount = activeResources.size
+
   for (const [, resource] of activeResources) {
     const record: LeakRecord = {
       testName: resource.testName,
@@ -86,4 +89,10 @@ afterEach(() => {
 
   writeFileSync(LEAK_FILE, ndjson, { flag: 'a' })
   activeResources.clear()
+
+  if (opts.failOnLeak) {
+    throw new Error(
+      `[leak-detector] ${leakCount} async leak${leakCount > 1 ? 's' : ''} detected`,
+    )
+  }
 })

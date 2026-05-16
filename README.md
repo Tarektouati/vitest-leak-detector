@@ -67,11 +67,15 @@ configureLeakDetector({
   trackNetwork: true,    // default: true
   stackDepth: 6,         // default: 6 frames
   warnInline: true,      // default: true — console.warn per leaked resource
+  failOnLeak: false,     // default: false — throw after a test leaks
   ignoreTypes: [],       // additional resource types to skip
 })
 ```
 
 > **Note:** Calling `configureLeakDetector` from a Vitest `globalSetup` file will **not** work — global setup runs in a separate process before workers start. Call it from a file listed in `setupFiles` instead.
+
+Set `failOnLeak: true` once your suite is clean to make any newly detected leak
+fail the leaking test.
 
 ## Example output
 

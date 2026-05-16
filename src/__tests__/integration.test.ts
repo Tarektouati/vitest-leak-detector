@@ -41,4 +41,9 @@ describe('hook wiring (sequential — order matters)', () => {
     expect(typeof record.stack).toBe('string')
     expect(typeof record.timestamp).toBe('number')
   })
+
+  it.fails('step 3: fails the leaking test when failOnLeak is enabled', () => {
+    configureLeakDetector({ failOnLeak: true, warnInline: false })
+    setTimeout(() => {}, 60_000).unref()
+  })
 })

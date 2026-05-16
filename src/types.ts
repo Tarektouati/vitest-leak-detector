@@ -12,5 +12,6 @@ export interface LeakDetectorOptions {
   trackNetwork?: boolean
   stackDepth?: number
   warnInline?: boolean
+  failOnLeak?: boolean
   ignoreTypes?: string[]
 }
