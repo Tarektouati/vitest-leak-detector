@@ -11,6 +11,14 @@ A zero-dependency Vitest plugin that detects async resource leaks between tests 
 - Node.js ≥ 24
 - Vitest ≥ 4.0.0
 
+## Runtime compatibility
+
+This package is **Node.js only**. It relies on [`node:async_hooks`](https://nodejs.org/api/async_hooks.html) — specifically the `init` and `destroy` lifecycle callbacks — to track async resource creation and cleanup at the event loop level. This API is deeply tied to Node.js's libuv-based runtime and V8's async context tracking.
+
+**Deno** ships its own equivalent natively: [`sanitizeOps` and `sanitizeResources`](https://docs.deno.com/runtime/fundamentals/testing/#resource-and-async-op-sanitizers) are built into `Deno.test()` and enabled by default, with [`--trace-leaks`](https://docs.deno.com/runtime/reference/cli/test/) for detailed stack traces. No plugin needed.
+
+**Bun** runs on JavaScriptCore (not V8) and does not expose the async resource lifecycle hooks this package depends on.
+
 ## Installation
 
 ```sh
