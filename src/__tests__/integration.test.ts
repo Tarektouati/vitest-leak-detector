@@ -4,7 +4,7 @@ import '../setup.js'
 import { existsSync, readFileSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterAll, onTestFinished } from 'vitest'
 import { configureLeakDetector } from '../setup.js'
 import type { LeakRecord } from '../types.js'
 
@@ -44,6 +44,9 @@ describe('hook wiring (sequential — order matters)', () => {
 
   it.fails('step 3: fails the leaking test when failOnLeak is enabled', () => {
     configureLeakDetector({ failOnLeak: true, warnInline: false })
+    onTestFinished(() => {
+      configureLeakDetector({ failOnLeak: false, warnInline: false })
+    })
     setTimeout(() => {}, 60_000).unref()
   })
 })

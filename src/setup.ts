@@ -69,9 +69,11 @@ afterEach(() => {
   const timestamp = Date.now()
   let ndjson = ''
 
-  const leakCount = activeResources.size
+  const leaked = [...activeResources.values()]
+  const leakedTypes = [...new Set(leaked.map((resource) => resource.type))].join(', ')
+  const leakedTests = [...new Set(leaked.map((resource) => resource.testName))].join(', ')
 
-  for (const [, resource] of activeResources) {
+  for (const resource of leaked) {
     const record: LeakRecord = {
       testName: resource.testName,
       testFile: resource.testFile,
@@ -92,7 +94,7 @@ afterEach(() => {
 
   if (opts.failOnLeak) {
     throw new Error(
-      `[leak-detector] ${leakCount} async leak${leakCount > 1 ? 's' : ''} detected`,
+      `[leak-detector] ${leaked.length} async leak${leaked.length > 1 ? 's' : ''} detected in ${leakedTests}: ${leakedTypes}`,
     )
   }
 })
