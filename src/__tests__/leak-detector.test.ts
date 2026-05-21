@@ -132,10 +132,26 @@ describe('hasLocatableFrame', () => {
     expect(hasLocatableFrame('')).toBe(false)
   })
 
-  it('returns true when mix of real and anonymous frames exists', () => {
+  it('returns false when first frame is anonymous even if later frames are real', () => {
     const stack = [
       '    at new Promise (<anonymous>)',
       '    at Object.<anonymous> (src/Timer.ts:8:3)',
+    ].join('\n')
+    expect(hasLocatableFrame(stack)).toBe(false)
+  })
+
+  it('returns false when first frame is from node_modules', () => {
+    const stack = [
+      '    at Object.asyncWrapper (/project/node_modules/@testing-library/react/dist/pure.js:93:9)',
+      '    at src/components/MyComponent.spec.tsx:44:5',
+    ].join('\n')
+    expect(hasLocatableFrame(stack)).toBe(false)
+  })
+
+  it('returns true when first frame is user code followed by anonymous frames', () => {
+    const stack = [
+      '    at setInterval (src/ClockWidget.tsx:13:5)',
+      '    at new Promise (<anonymous>)',
     ].join('\n')
     expect(hasLocatableFrame(stack)).toBe(true)
   })
