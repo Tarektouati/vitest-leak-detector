@@ -45,7 +45,9 @@ export function filterStack(rawStack: string, depth: number): string {
 }
 
 export function hasLocatableFrame(filteredStack: string): boolean {
-  return filteredStack
-    .split('\n')
-    .some(line => line.trim().length > 0 && !line.trimEnd().endsWith('(<anonymous>)'))
+  const firstFrame = filteredStack.split('\n').find(line => line.trim().length > 0)
+  if (!firstFrame) return false
+  if (firstFrame.trimEnd().endsWith('(<anonymous>)')) return false
+  if (firstFrame.includes('node_modules/')) return false
+  return true
 }
