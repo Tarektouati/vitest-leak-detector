@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { filterStack, shouldTrack } from '../utils.js'
+import { filterStack, shouldTrack, hasLocatableFrame } from '../utils.js'
 import type { LeakRecord } from '../types.js'
 
 describe('filterStack', () => {
@@ -33,6 +33,18 @@ describe('filterStack', () => {
     expect(result).not.toContain('node:async_hooks')
     expect(result).not.toContain('node:timers')
     expect(result).toContain('src/thing.ts')
+  })
+
+  it('strips vitest-leak-detector setup frames', () => {
+    const raw = [
+      'Error',
+      '    at AsyncHook.init (/project/node_modules/vitest-leak-detector/dist/setup.js:57:31)',
+      '    at /project/src/Timer.ts:5:3',
+    ].join('\n')
+
+    const result = filterStack(raw, 10)
+    expect(result).not.toContain('vitest-leak-detector/dist/setup')
+    expect(result).toContain('src/Timer.ts')
   })
 
   it('limits output to stackDepth frames', () => {
@@ -99,6 +111,38 @@ describe('shouldTrack', () => {
 
   it('returns false for unknown types', () => {
     expect(shouldTrack('UNKNOWN_RESOURCE', base)).toBe(false)
+  })
+})
+
+describe('hasLocatableFrame', () => {
+  it('returns true when at least one frame has a real file path', () => {
+    const stack = '    at setTimeout (src/components/Timer.ts:12:5)'
+    expect(hasLocatableFrame(stack)).toBe(true)
+  })
+
+  it('returns false when every non-empty frame ends with (<anonymous>)', () => {
+    const stack = [
+      '    at new Promise (<anonymous>)',
+      '    at scheduleCallback (<anonymous>)',
+    ].join('\n')
+    expect(hasLocatableFrame(stack)).toBe(false)
+  })
+
+  it('returns false for an empty string', () => {
+    expect(hasLocatableFrame('')).toBe(false)
+  })
+
+  it('returns true when mix of real and anonymous frames exists', () => {
+    const stack = [
+      '    at new Promise (<anonymous>)',
+      '    at Object.<anonymous> (src/Timer.ts:8:3)',
+    ].join('\n')
+    expect(hasLocatableFrame(stack)).toBe(true)
+  })
+
+  it('treats Object.<anonymous> with a real path as locatable', () => {
+    const stack = '    at Object.<anonymous> (src/file.ts:1:1)'
+    expect(hasLocatableFrame(stack)).toBe(true)
   })
 })
 

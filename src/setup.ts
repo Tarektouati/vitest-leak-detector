@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, afterEach } from 'vitest'
 import type { LeakDetectorOptions, LeakRecord } from './types.js'
-import { shouldTrack, filterStack } from './utils.js'
+import { shouldTrack, filterStack, hasLocatableFrame } from './utils.js'
 
 const LEAK_FILE = join(tmpdir(), `vitest-leaks-${process.pid}.ndjson`)
 
@@ -37,6 +37,7 @@ const hook = createHook({
   init(asyncId, type) {
     if (!trackingEnabled || !shouldTrack(type, opts)) return
     const stack = filterStack(new Error().stack ?? '', opts.stackDepth)
+    if (!hasLocatableFrame(stack)) return
     activeResources.set(asyncId, {
       type,
       stack,

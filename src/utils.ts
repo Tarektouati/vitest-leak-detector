@@ -36,8 +36,16 @@ export function filterStack(rawStack: string, depth: number): string {
         !line.includes('node:async_hooks') &&
         !line.includes('node:timers') &&
         !line.includes('node_modules/vitest') &&
-        !line.includes('node_modules/@vitest'),
+        !line.includes('node_modules/@vitest') &&
+        !line.includes('vitest-leak-detector/dist/setup') &&
+        !line.includes('vitest-leak-detector/src/setup'),
     )
     .slice(0, depth)
     .join('\n')
+}
+
+export function hasLocatableFrame(filteredStack: string): boolean {
+  return filteredStack
+    .split('\n')
+    .some(line => line.trim().length > 0 && !line.trimEnd().endsWith('(<anonymous>)'))
 }
