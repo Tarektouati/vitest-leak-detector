@@ -14,6 +14,7 @@ let opts: Required<LeakDetectorOptions> = {
   trackNetwork: true,
   stackDepth: 6,
   warnInline: true,
+  failOnLeak: false,
   ignoreTypes: [],
 }
 
@@ -69,7 +70,11 @@ afterEach(() => {
   const timestamp = Date.now()
   let ndjson = ''
 
-  for (const [, resource] of activeResources) {
+  const leaked = [...activeResources.values()]
+  const leakedTypes = [...new Set(leaked.map((resource) => resource.type))].join(', ')
+  const leakedTests = [...new Set(leaked.map((resource) => resource.testName))].join(', ')
+
+  for (const resource of leaked) {
     const record: LeakRecord = {
       testName: resource.testName,
       testFile: resource.testFile,
@@ -87,4 +92,10 @@ afterEach(() => {
 
   writeFileSync(LEAK_FILE, ndjson, { flag: 'a' })
   activeResources.clear()
+
+  if (opts.failOnLeak) {
+    throw new Error(
+      `[leak-detector] ${leaked.length} async leak${leaked.length > 1 ? 's' : ''} detected in ${leakedTests}: ${leakedTypes}`,
+    )
+  }
 })
