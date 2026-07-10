@@ -13,16 +13,20 @@ configureLeakDetector({ warnInline: false })
 
 const LEAK_FILE = join(tmpdir(), `vitest-leaks-${process.pid}.ndjson`)
 
+let leakedTimer: NodeJS.Timeout
+
 afterAll(() => {
+  // Clear the intentionally leaked timer so the process can exit.
+  clearTimeout(leakedTimer)
   // Remove the file so the reporter doesn't surface these intentional leaks.
   if (existsSync(LEAK_FILE)) unlinkSync(LEAK_FILE)
 })
 
 describe('hook wiring (sequential — order matters)', () => {
   it('step 1: creates a leaked setTimeout', () => {
-    // unref() prevents the timer from keeping the process alive after tests finish
-    // while still being tracked by async_hooks as an active resource.
-    setTimeout(() => {}, 60_000).unref()
+    // The timer must stay ref'd: unref'd handles are filtered out at report
+    // time by the hasRef() liveness check. It is cleared in afterAll.
+    leakedTimer = setTimeout(() => {}, 60_000)
     // afterEach registered by setup.ts fires after this, writes the NDJSON record.
   })
 

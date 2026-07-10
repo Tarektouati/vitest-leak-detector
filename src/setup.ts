@@ -21,11 +21,16 @@ export function configureLeakDetector(overrides: LeakDetectorOptions): void {
   opts = { ...opts, ...overrides }
 }
 
+interface RefCountedResource {
+  hasRef?: () => boolean
+}
+
 interface ResourceInfo {
   type: string
   stack: string
   testName: string
   testFile: string
+  ref?: WeakRef<RefCountedResource>
 }
 
 let trackingEnabled = false
@@ -34,15 +39,18 @@ let currentTestFile = ''
 const activeResources = new Map<number, ResourceInfo>()
 
 const hook = createHook({
-  init(asyncId, type) {
+  init(asyncId, type, _triggerAsyncId, resource) {
     if (!trackingEnabled || !shouldTrack(type, opts)) return
     const stack = filterStack(new Error().stack ?? '', opts.stackDepth)
     if (!hasLocatableFrame(stack)) return
+    const refCounted = resource as RefCountedResource
     activeResources.set(asyncId, {
       type,
       stack,
       testName: currentTestName,
       testFile: currentTestFile,
+      // WeakRef only: holding the resource strongly would itself leak memory.
+      ref: typeof refCounted?.hasRef === 'function' ? new WeakRef(refCounted) : undefined,
     })
   },
   destroy(asyncId) {
@@ -61,15 +69,29 @@ beforeEach(({ task }) => {
   trackingEnabled = true
 })
 
-afterEach(() => {
+// clearTimeout()/close() emit async_hooks `destroy` on a later tick, so a
+// synchronous snapshot reports correctly-cleaned resources as leaks. Drain the
+// destroy queue (same approach as Jest's collectHandles) before reporting.
+afterEach(async () => {
   trackingEnabled = false
 
+  if (activeResources.size === 0) return
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  if (activeResources.size === 0) return
+  await new Promise((resolve) => setTimeout(resolve, 30))
   if (activeResources.size === 0) return
 
   const timestamp = Date.now()
   let ndjson = ''
 
   for (const [, resource] of activeResources) {
+    // A resource that was GC'd or reports hasRef() === false (unref'd or
+    // already closed) no longer keeps the event loop alive — not a leak.
+    if (resource.ref) {
+      const live = resource.ref.deref()
+      if (live === undefined || live.hasRef?.() === false) continue
+    }
+
     const record: LeakRecord = {
       testName: resource.testName,
       testFile: resource.testFile,
@@ -85,6 +107,6 @@ afterEach(() => {
     ndjson += JSON.stringify(record) + '\n'
   }
 
-  writeFileSync(LEAK_FILE, ndjson, { flag: 'a' })
+  if (ndjson !== '') writeFileSync(LEAK_FILE, ndjson, { flag: 'a' })
   activeResources.clear()
 })
