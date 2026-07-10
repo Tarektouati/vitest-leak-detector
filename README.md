@@ -48,6 +48,8 @@ Stack traces are captured at resource creation time (`init`), not at detection t
 
 At the end of each test, any resources that were created but not destroyed are written to a temporary NDJSON file. The reporter reads all such files after the run completes, prints a grouped summary, and deletes them.
 
+Because Node emits `async_hooks` `destroy` events asynchronously, a resource cleaned up during teardown (e.g. `clearTimeout` inside a React effect cleanup) may still look active at the exact moment the test ends. To avoid such false positives, the detector waits up to ~30ms after each test for queued `destroy` events to drain before reporting — this latency only applies when leak candidates exist. Additionally, handles are re-checked for liveness at report time: any handle that reports `hasRef() === false` (an `unref()`'d timer, or a handle that was already closed) or that has been garbage-collected is filtered out, since it no longer keeps the event loop alive.
+
 ## What is tracked
 
 | Handle type | Default | Notes |
