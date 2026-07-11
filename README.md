@@ -48,7 +48,7 @@ Stack traces are captured at resource creation time (`init`), not at detection t
 
 At the end of each test, any resources that were created but not destroyed are written to a temporary NDJSON file. The reporter reads all such files after the run completes, prints a grouped summary, and deletes them.
 
-Because Node emits `async_hooks` `destroy` events asynchronously, a resource cleaned up during teardown (e.g. `clearTimeout` inside a React effect cleanup) may still look active at the exact moment the test ends. To avoid such false positives, the detector waits up to ~30ms after each test for queued `destroy` events to drain before reporting — this latency only applies when leak candidates exist. Additionally, handles are re-checked for liveness at report time: any handle that reports `hasRef() === false` (an `unref()`'d timer, or a handle that was already closed) or that has been garbage-collected is filtered out, since it no longer keeps the event loop alive.
+Because Node emits `async_hooks` `destroy` events asynchronously, a resource cleaned up during teardown (e.g. `clearTimeout` inside a React effect cleanup) may still look active at the exact moment the test ends. To avoid such false positives, the detector waits up to ~30ms after each test for queued `destroy` events to drain before reporting — this latency only applies when leak candidates exist. Additionally, handles are re-checked for liveness at report time: any handle that reports `hasRef() === false` (an `unref()`'d timer, or a handle that was already closed) or that has been garbage-collected is filtered out, since it no longer keeps the event loop alive. `FILEHANDLE` resources expose no `hasRef()` and never emit `destroy` on `close()`, so they are re-checked through their file descriptor instead: a closed handle's `fd` turns negative and is filtered out.
 
 ## What is tracked
 
@@ -59,6 +59,8 @@ Because Node emits `async_hooks` `destroy` events asynchronously, a resource cle
 | `HTTPCLIENTREQUEST`, `HTTPPARSER` | ✅ | Pending HTTP |
 | `UDPSENDWRAP`, `UDPWRAP` | ✅ | UDP sockets |
 | `GETADDRINFOREQWRAP` | ✅ | DNS lookups |
+| `FSEVENTWRAP`, `STATWATCHER` | ✅ | `fs.watch()` / `fs.watchFile()` not closed |
+| `FILEHANDLE` | ✅ | `fsPromises.open()` without `close()` — no stack trace available (created at an async boundary), identified by test name only |
 | `PROMISE` | ⚙️ opt-in | Noisy by default |
 | `ROOT`, `TickObject`, `TIMERWRAP`, `Immediate` | ❌ | Vitest internals — always ignored |
 
@@ -75,6 +77,7 @@ configureLeakDetector({
   trackPromises: false,  // default: false
   trackTimers: true,     // default: true
   trackNetwork: true,    // default: true
+  trackFs: true,         // default: true — fs watchers and file handles
   stackDepth: 6,         // default: 6 frames
   warnInline: true,      // default: true — console.warn per leaked resource
   ignoreTypes: [],       // additional resource types to skip
@@ -114,6 +117,16 @@ let controller: AbortController
 beforeEach(() => { controller = new AbortController() })
 afterEach(() => controller.abort())
 // pass controller.signal to fetch calls
+```
+
+**Fs watcher / file handle leaks**
+
+```ts
+let watcher: fs.FSWatcher
+beforeEach(() => { watcher = fs.watch(configPath, onChange) })
+afterEach(() => watcher.close())
+// same idea for fs.watchFile → fs.unwatchFile(path)
+// and fsPromises.open → await handle.close()
 ```
 
 **MSW cleanup**

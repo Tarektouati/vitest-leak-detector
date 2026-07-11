@@ -11,10 +11,13 @@ const NETWORK_TYPES = new Set([
   'UDPWRAP',
   'GETADDRINFOREQWRAP',
 ])
+// FSREQCALLBACK is deliberately excluded: every async fs operation emits one,
+// which makes it far too noisy relative to the signal it would add.
+const FS_TYPES = new Set(['FSEVENTWRAP', 'STATWATCHER', 'FILEHANDLE'])
 
 type TrackingOptions = Pick<
   Required<LeakDetectorOptions>,
-  'trackTimers' | 'trackNetwork' | 'trackPromises' | 'ignoreTypes'
+  'trackTimers' | 'trackNetwork' | 'trackPromises' | 'trackFs' | 'ignoreTypes'
 >
 
 export function shouldTrack(type: string, opts: TrackingOptions): boolean {
@@ -23,6 +26,7 @@ export function shouldTrack(type: string, opts: TrackingOptions): boolean {
   if (type === 'PROMISE') return opts.trackPromises
   if (TIMER_TYPES.has(type)) return opts.trackTimers
   if (NETWORK_TYPES.has(type)) return opts.trackNetwork
+  if (FS_TYPES.has(type)) return opts.trackFs
   return false
 }
 

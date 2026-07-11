@@ -10,6 +10,7 @@ export interface LeakDetectorOptions {
   trackPromises?: boolean
   trackTimers?: boolean
   trackNetwork?: boolean
+  trackFs?: boolean
   stackDepth?: number
   warnInline?: boolean
   ignoreTypes?: string[]

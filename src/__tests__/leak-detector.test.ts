@@ -63,7 +63,7 @@ describe('filterStack', () => {
 })
 
 describe('shouldTrack', () => {
-  const base = { trackTimers: true, trackNetwork: true, trackPromises: false, ignoreTypes: [] as string[] }
+  const base = { trackTimers: true, trackNetwork: true, trackPromises: false, trackFs: true, ignoreTypes: [] as string[] }
 
   it('returns false for always-ignored types', () => {
     for (const type of ['ROOT', 'TickObject', 'TIMERWRAP', 'Immediate', 'DESTROYWRAP']) {
@@ -91,6 +91,23 @@ describe('shouldTrack', () => {
   it('does not track network types when trackNetwork is false', () => {
     const opts = { ...base, trackNetwork: false }
     expect(shouldTrack('TCPWRAP', opts)).toBe(false)
+  })
+
+  it('tracks fs types when trackFs is true', () => {
+    for (const type of ['FSEVENTWRAP', 'STATWATCHER', 'FILEHANDLE']) {
+      expect(shouldTrack(type, base)).toBe(true)
+    }
+  })
+
+  it('does not track fs types when trackFs is false', () => {
+    const opts = { ...base, trackFs: false }
+    for (const type of ['FSEVENTWRAP', 'STATWATCHER', 'FILEHANDLE']) {
+      expect(shouldTrack(type, opts)).toBe(false)
+    }
+  })
+
+  it('never tracks FSREQCALLBACK (too noisy)', () => {
+    expect(shouldTrack('FSREQCALLBACK', base)).toBe(false)
   })
 
   it('does not track PROMISE by default', () => {
