@@ -12,6 +12,7 @@ let opts: Required<LeakDetectorOptions> = {
   trackPromises: false,
   trackTimers: true,
   trackNetwork: true,
+  trackFs: true,
   stackDepth: 6,
   warnInline: true,
   ignoreTypes: [],
@@ -23,6 +24,8 @@ export function configureLeakDetector(overrides: LeakDetectorOptions): void {
 
 interface RefCountedResource {
   hasRef?: () => boolean
+  // FILEHANDLE resources expose no hasRef(); their fd turns negative on close.
+  fd?: number
 }
 
 interface ResourceInfo {
@@ -42,15 +45,23 @@ const hook = createHook({
   init(asyncId, type, _triggerAsyncId, resource) {
     if (!trackingEnabled || !shouldTrack(type, opts)) return
     const stack = filterStack(new Error().stack ?? '', opts.stackDepth)
-    if (!hasLocatableFrame(stack)) return
+    // FILEHANDLE is created when the async open() completes, so V8 cuts the
+    // stack at the async boundary and no user frame is ever present. Keep the
+    // record anyway — testName/testFile still identify the leaking test.
+    if (type !== 'FILEHANDLE' && !hasLocatableFrame(stack)) return
     const refCounted = resource as RefCountedResource
+    // Do NOT touch resource.fd here: the FILEHANDLE fd getter is native and
+    // segfaults (SIGBUS in StreamBase::GetFD) when invoked during init, while
+    // the object is still mid-construction. Gate on the type instead; fd is
+    // only safe to read later, at report time.
+    const refCheckable = typeof refCounted?.hasRef === 'function' || type === 'FILEHANDLE'
     activeResources.set(asyncId, {
       type,
       stack,
       testName: currentTestName,
       testFile: currentTestFile,
       // WeakRef only: holding the resource strongly would itself leak memory.
-      ref: typeof refCounted?.hasRef === 'function' ? new WeakRef(refCounted) : undefined,
+      ref: refCheckable ? new WeakRef(refCounted) : undefined,
     })
   },
   destroy(asyncId) {
@@ -90,6 +101,9 @@ afterEach(async () => {
     if (resource.ref) {
       const live = resource.ref.deref()
       if (live === undefined || live.hasRef?.() === false) continue
+      // FILEHANDLE never emits destroy on close() (only on GC), so re-check
+      // the fd: it turns negative once the handle is closed.
+      if (live.hasRef === undefined && typeof live.fd === 'number' && live.fd < 0) continue
     }
 
     const record: LeakRecord = {
