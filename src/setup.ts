@@ -1,4 +1,5 @@
 import { createHook } from 'node:async_hooks'
+import { subscribe } from 'node:diagnostics_channel'
 import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -74,6 +75,54 @@ const hook = createHook({
 
 hook.enable()
 
+// fetch() goes through Node's bundled undici and never hits the async_hooks
+// network types, so in-flight requests are tracked separately via undici's
+// diagnostics_channel events and reported as the synthetic type FETCH.
+interface FetchInfo {
+  stack: string
+  testName: string
+  testFile: string
+}
+
+const pendingFetches = new Map<object, FetchInfo>()
+
+function onFetchRequestCreate(message: unknown): void {
+  if (!trackingEnabled || !shouldTrack('FETCH', opts)) return
+  const { request } = message as { request: object }
+  // undici's dispatch chain between the user's fetch() call and this publish
+  // is deeper than the default stackTraceLimit of 10 — without raising it the
+  // user frame is cut off and every fetch would be unlocatable.
+  const previousLimit = Error.stackTraceLimit
+  Error.stackTraceLimit = 30
+  const holder = { stack: '' }
+  Error.captureStackTrace(holder, onFetchRequestCreate)
+  Error.stackTraceLimit = previousLimit
+  // Everything between here and the user's fetch() call is undici-internal,
+  // so anonymous frames (undici's own `new Promise`) are noise, not the
+  // resource's origin — drop them so the user frame surfaces first.
+  const raw = holder.stack
+    .split('\n')
+    .filter((line) => !line.trimEnd().endsWith('(<anonymous>)'))
+    .join('\n')
+  const stack = filterStack(raw, opts.stackDepth)
+  if (!hasLocatableFrame(stack)) return
+  pendingFetches.set(request, {
+    stack,
+    testName: currentTestName,
+    testFile: currentTestFile,
+  })
+}
+
+function onFetchRequestSettled(message: unknown): void {
+  const { request } = message as { request: object }
+  pendingFetches.delete(request)
+}
+
+subscribe('undici:request:create', onFetchRequestCreate)
+// trailers = response fully received; error = failure or AbortSignal abort.
+subscribe('undici:request:trailers', onFetchRequestSettled)
+subscribe('undici:request:error', onFetchRequestSettled)
+
 beforeEach(({ task }) => {
   currentTestName = task.name
   currentTestFile = task.file?.filepath ?? '<unknown>'
@@ -86,11 +135,13 @@ beforeEach(({ task }) => {
 afterEach(async () => {
   trackingEnabled = false
 
-  if (activeResources.size === 0) return
+  // The drains also give a user afterEach that aborts a fetch time for the
+  // undici:request:error event to remove it from pendingFetches.
+  if (activeResources.size === 0 && pendingFetches.size === 0) return
   await new Promise((resolve) => setTimeout(resolve, 0))
-  if (activeResources.size === 0) return
+  if (activeResources.size === 0 && pendingFetches.size === 0) return
   await new Promise((resolve) => setTimeout(resolve, 30))
-  if (activeResources.size === 0) return
+  if (activeResources.size === 0 && pendingFetches.size === 0) return
 
   const timestamp = Date.now()
   let ndjson = ''
@@ -121,6 +172,23 @@ afterEach(async () => {
     ndjson += JSON.stringify(record) + '\n'
   }
 
+  for (const [, fetchInfo] of pendingFetches) {
+    const record: LeakRecord = {
+      testName: fetchInfo.testName,
+      testFile: fetchInfo.testFile,
+      type: 'FETCH',
+      stack: fetchInfo.stack,
+      timestamp,
+    }
+
+    if (opts.warnInline) {
+      console.warn(`[leak-detector] "${fetchInfo.testName}": FETCH\n${fetchInfo.stack}`)
+    }
+
+    ndjson += JSON.stringify(record) + '\n'
+  }
+
   if (ndjson !== '') writeFileSync(LEAK_FILE, ndjson, { flag: 'a' })
   activeResources.clear()
+  pendingFetches.clear()
 })
