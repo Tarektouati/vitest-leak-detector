@@ -6,10 +6,10 @@
  * a response), so the HTTPCLIENTREQUEST and TCPWRAP async resources outlive
  * the component.
  *
- * Note: modern fetch() uses undici, which creates different async resource
- * types not yet tracked by the plugin. node:http.request() is used here
- * because it creates the HTTPCLIENTREQUEST / TCPWRAP types that the plugin
- * tracks out of the box.
+ * Note: node:http.request() is used here because it creates the
+ * HTTPCLIENTREQUEST / TCPWRAP async_hooks types. Modern fetch() goes through
+ * undici and is tracked separately via diagnostics_channel — see
+ * StatusBadge.test.tsx for the fetch() leak demo.
  *
  * Fix: return () => req.destroy() from the effect, or use fetch() with an
  * AbortController: return () => controller.abort()

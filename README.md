@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE) [![CI](https://github.com/Tarektouati/vitest-leak-detector/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Tarektouati/vitest-leak-detector/actions/workflows/ci.yml)
 
-A zero-dependency Vitest plugin that detects async resource leaks between tests using Node's `async_hooks`. Identifies which tests leave behind uncleaned timers, open sockets, or pending HTTP requests.
+A zero-dependency Vitest plugin that detects async resource leaks between tests using Node's `async_hooks`. Identifies which tests leave behind uncleaned timers, open sockets, or pending HTTP/`fetch()` requests.
 
 ## Requirements
 
@@ -48,6 +48,8 @@ Stack traces are captured at resource creation time (`init`), not at detection t
 
 At the end of each test, any resources that were created but not destroyed are written to a temporary NDJSON file. The reporter reads all such files after the run completes, prints a grouped summary, and deletes them.
 
+`fetch()` requests go through Node's bundled undici, which bypasses the `async_hooks` network types entirely. The detector tracks them separately via undici's [`diagnostics_channel`](https://nodejs.org/api/diagnostics_channel.html) events (`undici:request:create` / `undici:request:trailers` / `undici:request:error`) — still zero-dependency — and reports requests that are still in flight when a test ends as the synthetic `FETCH` type. Completed, failed, and aborted (`AbortSignal`) requests are not reported.
+
 Because Node emits `async_hooks` `destroy` events asynchronously, a resource cleaned up during teardown (e.g. `clearTimeout` inside a React effect cleanup) may still look active at the exact moment the test ends. To avoid such false positives, the detector waits up to ~30ms after each test for queued `destroy` events to drain before reporting — this latency only applies when leak candidates exist. Additionally, handles are re-checked for liveness at report time: any handle that reports `hasRef() === false` (an `unref()`'d timer, or a handle that was already closed) or that has been garbage-collected is filtered out, since it no longer keeps the event loop alive. `FILEHANDLE` resources expose no `hasRef()` and never emit `destroy` on `close()`, so they are re-checked through their file descriptor instead: a closed handle's `fd` turns negative and is filtered out.
 
 ## What is tracked
@@ -59,6 +61,7 @@ Because Node emits `async_hooks` `destroy` events asynchronously, a resource cle
 | `HTTPCLIENTREQUEST`, `HTTPPARSER` | ✅ | Pending HTTP |
 | `UDPSENDWRAP`, `UDPWRAP` | ✅ | UDP sockets |
 | `GETADDRINFOREQWRAP` | ✅ | DNS lookups |
+| `FETCH` | ✅ | In-flight `fetch()` requests (undici), tracked via `diagnostics_channel` |
 | `FSEVENTWRAP`, `STATWATCHER` | ✅ | `fs.watch()` / `fs.watchFile()` not closed |
 | `FILEHANDLE` | ✅ | `fsPromises.open()` without `close()` — no stack trace available (created at an async boundary), identified by test name only |
 | `PROMISE` | ⚙️ opt-in | Noisy by default |

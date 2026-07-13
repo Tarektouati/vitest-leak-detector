@@ -35,6 +35,36 @@ describe('filterStack', () => {
     expect(result).toContain('src/thing.ts')
   })
 
+  it('strips node:diagnostics_channel and undici frames', () => {
+    const raw = [
+      'Error',
+      '    at Channel.publish (node:diagnostics_channel:165:9)',
+      '    at new Request (node:internal/deps/undici/undici:2992:27)',
+      '    at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)',
+      '    at /project/src/api.ts:12:3',
+    ].join('\n')
+
+    const result = filterStack(raw, 10)
+    expect(result).not.toContain('node:diagnostics_channel')
+    expect(result).not.toContain('undici')
+    expect(result).toContain('src/api.ts')
+  })
+
+  it('strips all node builtin frames and the AsyncHook.init frame', () => {
+    const raw = [
+      'Error',
+      '    at AsyncHook.init (/project/node_modules/vitest-leak-detector/dist/setup.js:65:31)',
+      '    at Socket.connect (node:net:1476:7)',
+      '    at Object.connect (node:net:254:17)',
+      '    at /project/src/api.ts:12:3',
+    ].join('\n')
+
+    const result = filterStack(raw, 10)
+    expect(result).not.toContain('node:net')
+    expect(result).not.toContain('AsyncHook.init')
+    expect(result).toContain('src/api.ts')
+  })
+
   it('strips vitest-leak-detector setup frames', () => {
     const raw = [
       'Error',
@@ -83,7 +113,7 @@ describe('shouldTrack', () => {
   })
 
   it('tracks network types when trackNetwork is true', () => {
-    for (const type of ['TCPWRAP', 'TLSWRAP', 'HTTPCLIENTREQUEST', 'HTTPPARSER', 'UDPSENDWRAP', 'UDPWRAP', 'GETADDRINFOREQWRAP']) {
+    for (const type of ['TCPWRAP', 'TLSWRAP', 'HTTPCLIENTREQUEST', 'HTTPPARSER', 'UDPSENDWRAP', 'UDPWRAP', 'GETADDRINFOREQWRAP', 'FETCH']) {
       expect(shouldTrack(type, base)).toBe(true)
     }
   })
@@ -91,6 +121,12 @@ describe('shouldTrack', () => {
   it('does not track network types when trackNetwork is false', () => {
     const opts = { ...base, trackNetwork: false }
     expect(shouldTrack('TCPWRAP', opts)).toBe(false)
+    expect(shouldTrack('FETCH', opts)).toBe(false)
+  })
+
+  it('respects ignoreTypes for FETCH', () => {
+    const opts = { ...base, ignoreTypes: ['FETCH'] }
+    expect(shouldTrack('FETCH', opts)).toBe(false)
   })
 
   it('tracks fs types when trackFs is true', () => {

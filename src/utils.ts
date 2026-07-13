@@ -10,6 +10,9 @@ const NETWORK_TYPES = new Set([
   'UDPSENDWRAP',
   'UDPWRAP',
   'GETADDRINFOREQWRAP',
+  // Synthetic type for in-flight fetch() requests tracked via undici's
+  // diagnostics_channel (fetch bypasses the async_hooks network types above).
+  'FETCH',
 ])
 // FSREQCALLBACK is deliberately excluded: every async fs operation emits one,
 // which makes it far too noisy relative to the signal it would add.
@@ -36,9 +39,12 @@ export function filterStack(rawStack: string, depth: number): string {
     .slice(1)
     .filter(
       (line) =>
-        !line.includes('node:internal') &&
-        !line.includes('node:async_hooks') &&
-        !line.includes('node:timers') &&
+        // All Node builtin frames ("at node:net:…" or "at fn (node:net:…)") —
+        // never user code, and undici socket frames would otherwise pass
+        // hasLocatableFrame and double-report fetch leaks as TCPWRAP.
+        !/\(node:|\bat node:/.test(line) &&
+        // This package's own async_hooks init callback frame.
+        !line.includes('AsyncHook.init') &&
         !line.includes('node_modules/vitest') &&
         !line.includes('node_modules/@vitest') &&
         !line.includes('vitest-leak-detector/dist/setup') &&
