@@ -3,7 +3,7 @@ import { subscribe } from 'node:diagnostics_channel'
 import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeEach, afterEach } from 'vitest'
+import { beforeEach, afterEach, onTestFinished } from 'vitest'
 import type { LeakDetectorOptions, LeakRecord } from './types.js'
 import { shouldTrack, filterStack, hasLocatableFrame } from './utils.js'
 
@@ -133,18 +133,34 @@ beforeEach(({ task }) => {
   currentTestName = task.name
   currentTestFile = task.file?.filepath ?? '<unknown>'
   trackingEnabled = true
+  // Report via onTestFinished, not a competing afterEach: under Vitest's
+  // default sequence.hooks 'stack' mode, afterEach hooks run in reverse
+  // registration order, so a report registered as afterEach would run before
+  // user cleanup hooks (Testing Library cleanup(), MSW resetHandlers(), ...)
+  // whenever the detector is not first in setupFiles — flagging everything
+  // that cleanup releases as a leak (#23). onTestFinished runs after all
+  // afterEach hooks in every sequence.hooks mode, making the detector
+  // independent of setupFiles order.
+  onTestFinished(reportLeaks)
 })
 
-// The callback must stay synchronous: an async function's implicit promise is
-// created at invocation, before the first body statement runs — while
-// trackingEnabled is still true — so with trackPromises it would be tracked
-// and reported as a phantom leak on every test. Tracking is switched off
-// synchronously here; only then is the drain/report promise created.
+// Safety net for tests skipped dynamically via ctx.skip(), where
+// onTestFinished never fires but afterEach hooks still run.
 afterEach(() => {
+  trackingEnabled = false
+})
+
+// The callback must stay synchronous up to the early return: an async
+// function's implicit promise is created at invocation, before the first body
+// statement runs — if trackingEnabled were still true, with trackPromises it
+// would be tracked and reported as a phantom leak on every test (#24).
+// Tracking is switched off synchronously here; only then is the drain/report
+// promise created.
+function reportLeaks(): void | Promise<void> {
   trackingEnabled = false
   if (activeResources.size === 0 && pendingFetches.size === 0) return
   return drainAndReport()
-})
+}
 
 // clearTimeout()/close() emit async_hooks `destroy` on a later tick, so a
 // synchronous snapshot reports correctly-cleaned resources as leaks. Drain the

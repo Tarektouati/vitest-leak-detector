@@ -29,8 +29,8 @@ function recordsFor(testName: string): LeakRecord[] {
 let pendingTimer: NodeJS.Timeout | undefined
 let unrefdTimer: NodeJS.Timeout | undefined
 
-// Registered after setup.ts's afterEach, so under Vitest's default reversed
-// ('stack') hook order it runs *before* the detector reports — mimicking
+// The detector reports via onTestFinished, which runs after all afterEach
+// hooks — so this cleanup runs *before* the detector reports, mimicking
 // Testing Library's cleanup() clearing timers during teardown.
 afterEach(() => {
   if (pendingTimer !== undefined) {
