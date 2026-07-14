@@ -2,9 +2,21 @@ interface Props {
   userId: string
 }
 
+// In-flight queue like a real analytics SDK would keep for flush(). Holding
+// the pending Promise also keeps it out of reach of the garbage collector:
+// an unreferenced Promise can be GC'd before the leak report runs (Promise
+// async_hooks `destroy` fires on GC), which would make this demo flaky.
+const inflight = new Set<Promise<void>>()
+
 async function trackActivity(userId: string): Promise<void> {
   // Simulates a slow remote analytics call that never settles in tests.
-  await new Promise<void>(() => {})
+  const call = new Promise<void>(() => {})
+  inflight.add(call)
+  try {
+    await call
+  } finally {
+    inflight.delete(call)
+  }
 }
 
 export async function UserActivityLogger({ userId }: Props) {

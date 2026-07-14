@@ -28,7 +28,7 @@ describe('UserActivityLogger RSC', () => {
   it('fires an unawaited trackActivity call that leaks a PROMISE', async () => {
     // RSCs are plain async functions — call directly, no render() needed.
     await UserActivityLogger({ userId: 'user-42' })
-    // afterEach: vitest-leak-detector finds the unreleased PROMISE in
+    // At test end, vitest-leak-detector finds the unreleased PROMISE in
     // activeResources and writes it to the NDJSON report.
   })
 })
