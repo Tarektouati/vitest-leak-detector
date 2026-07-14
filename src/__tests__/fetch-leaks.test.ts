@@ -5,16 +5,12 @@ import '../setup.js'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { existsSync, readFileSync, unlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { configureLeakDetector } from '../setup.js'
+import { configureLeakDetector, LEAK_FILE } from '../setup.js'
 import type { LeakRecord } from '../types.js'
 
 // Suppress inline warnings so intentional leaks don't pollute test output.
 configureLeakDetector({ warnInline: false })
-
-const LEAK_FILE = join(tmpdir(), `vitest-leaks-${process.pid}.ndjson`)
 
 let server: ReturnType<typeof createServer>
 let baseUrl: string

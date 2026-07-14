@@ -7,7 +7,13 @@ import { beforeEach, afterEach } from 'vitest'
 import type { LeakDetectorOptions, LeakRecord } from './types.js'
 import { shouldTrack, filterStack, hasLocatableFrame } from './utils.js'
 
-const LEAK_FILE = join(tmpdir(), `vitest-leaks-${process.pid}.ndjson`)
+// The reporter (main process) generates a run ID and exports it via the
+// environment before workers fork; namespacing the file with it keeps
+// concurrent runs from reading and deleting each other's output (#26).
+// 'orphan' covers setup imported without the reporter — those files are
+// garbage-collected by a later run's 24h staleness sweep.
+const RUN_ID = process.env.VITEST_LEAK_RUN_ID ?? 'orphan'
+export const LEAK_FILE = join(tmpdir(), `vitest-leaks-${RUN_ID}-${process.pid}.ndjson`)
 
 let opts: Required<LeakDetectorOptions> = {
   trackPromises: false,
