@@ -46,7 +46,7 @@ The setup file runs in Vitest worker threads. It enables an `async_hooks` hook t
 
 Stack traces are captured at resource creation time (`init`), not at detection time, so you get useful call sites pointing to your test code.
 
-At the end of each test, any resources that were created but not destroyed are written to a temporary NDJSON file. The reporter reads all such files after the run completes, prints a grouped summary, and deletes them.
+At the end of each test, any resources that were created but not destroyed are written to a temporary NDJSON file, namespaced with a per-run ID that the reporter shares with the workers through the environment. After the run completes, the reporter reads only the files belonging to the current run, prints a grouped summary, and deletes them — concurrent Vitest runs on the same machine never touch each other's files. Files left behind by interrupted runs are garbage-collected at run start once they are older than 24 hours.
 
 `fetch()` requests go through Node's bundled undici, which bypasses the `async_hooks` network types entirely. The detector tracks them separately via undici's [`diagnostics_channel`](https://nodejs.org/api/diagnostics_channel.html) events (`undici:request:create` / `undici:request:trailers` / `undici:request:error`) — still zero-dependency — and reports requests that are still in flight when a test ends as the synthetic `FETCH` type. Completed, failed, and aborted (`AbortSignal`) requests are not reported.
 
