@@ -23,7 +23,8 @@ describe('hook wiring (sequential — order matters)', () => {
     // The timer must stay ref'd: unref'd handles are filtered out at report
     // time by the hasRef() liveness check. It is cleared in afterAll.
     leakedTimer = setTimeout(() => {}, 60_000)
-    // afterEach registered by setup.ts fires after this, writes the NDJSON record.
+    // The onTestFinished report registered by setup.ts fires after this,
+    // writes the NDJSON record.
   })
 
   it('step 2: NDJSON record was written by previous test', () => {

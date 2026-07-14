@@ -40,15 +40,11 @@ export default defineConfig({
 })
 ```
 
-> **Warning:** If you have other setup files, `vitest-leak-detector/setup` must come **first** in `setupFiles`. Vitest 4 defaults `sequence.hooks: 'stack'`, which runs `afterEach` hooks in reverse registration order — if a cleanup setup file (Testing Library `cleanup()`, MSW `resetHandlers()`, …) registers before the detector, the leak snapshot runs before that cleanup and everything it would have released is falsely reported as a leak.
-
-```ts
-setupFiles: ['vitest-leak-detector/setup', './src/test-setup.ts'], // ✅ detector first
-```
+> **Note:** The leak report runs via [`onTestFinished`](https://vitest.dev/api/#ontestfinished), which fires after **all** `afterEach` hooks in every `sequence.hooks` mode — so cleanup performed by other setup files (Testing Library `cleanup()`, MSW `resetHandlers()`, …) always completes before the snapshot, regardless of the order of `setupFiles`. On 1.1.0 and earlier the report ran in a competing `afterEach`, so `vitest-leak-detector/setup` had to be listed **first** in `setupFiles` — still a fine default.
 
 ## How it works
 
-The setup file runs in Vitest worker threads. It enables an `async_hooks` hook that tracks async resource lifecycles, but only between `beforeEach` and `afterEach` — preventing Vitest's own internals from registering as false positives.
+The setup file runs in Vitest worker threads. It enables an `async_hooks` hook that tracks async resource lifecycles, but only between `beforeEach` and the end of each test (`onTestFinished`, after all `afterEach` hooks) — preventing Vitest's own internals from registering as false positives.
 
 Stack traces are captured at resource creation time (`init`), not at detection time, so you get useful call sites pointing to your test code.
 
@@ -75,7 +71,7 @@ Because Node emits `async_hooks` `destroy` events asynchronously, a resource cle
 
 ## Configuration
 
-`configureLeakDetector` must be called **before the first test runs** — i.e. at the top of the same setup file, before any `import` side-effects that might trigger async resources. Options are read at `beforeEach`/`afterEach` time, so calling this at module scope in the setup file is always safe.
+`configureLeakDetector` must be called **before the first test runs** — i.e. at the top of the same setup file, before any `import` side-effects that might trigger async resources. Options are read at `beforeEach`/report time, so calling this at module scope in the setup file is always safe.
 
 ```ts
 // vitest-setup.ts  ← referenced in setupFiles
