@@ -135,15 +135,23 @@ beforeEach(({ task }) => {
   trackingEnabled = true
 })
 
+// The callback must stay synchronous: an async function's implicit promise is
+// created at invocation, before the first body statement runs — while
+// trackingEnabled is still true — so with trackPromises it would be tracked
+// and reported as a phantom leak on every test. Tracking is switched off
+// synchronously here; only then is the drain/report promise created.
+afterEach(() => {
+  trackingEnabled = false
+  if (activeResources.size === 0 && pendingFetches.size === 0) return
+  return drainAndReport()
+})
+
 // clearTimeout()/close() emit async_hooks `destroy` on a later tick, so a
 // synchronous snapshot reports correctly-cleaned resources as leaks. Drain the
 // destroy queue (same approach as Jest's collectHandles) before reporting.
-afterEach(async () => {
-  trackingEnabled = false
-
+async function drainAndReport(): Promise<void> {
   // The drains also give a user afterEach that aborts a fetch time for the
   // undici:request:error event to remove it from pendingFetches.
-  if (activeResources.size === 0 && pendingFetches.size === 0) return
   await new Promise((resolve) => setTimeout(resolve, 0))
   if (activeResources.size === 0 && pendingFetches.size === 0) return
   await new Promise((resolve) => setTimeout(resolve, 30))
@@ -197,4 +205,4 @@ afterEach(async () => {
   if (ndjson !== '') writeFileSync(LEAK_FILE, ndjson, { flag: 'a' })
   activeResources.clear()
   pendingFetches.clear()
-})
+}
