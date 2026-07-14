@@ -40,6 +40,12 @@ export default defineConfig({
 })
 ```
 
+> **Warning:** If you have other setup files, `vitest-leak-detector/setup` must come **first** in `setupFiles`. Vitest 4 defaults `sequence.hooks: 'stack'`, which runs `afterEach` hooks in reverse registration order — if a cleanup setup file (Testing Library `cleanup()`, MSW `resetHandlers()`, …) registers before the detector, the leak snapshot runs before that cleanup and everything it would have released is falsely reported as a leak.
+
+```ts
+setupFiles: ['vitest-leak-detector/setup', './src/test-setup.ts'], // ✅ detector first
+```
+
 ## How it works
 
 The setup file runs in Vitest worker threads. It enables an `async_hooks` hook that tracks async resource lifecycles, but only between `beforeEach` and `afterEach` — preventing Vitest's own internals from registering as false positives.

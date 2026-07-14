@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
-    setupFiles: ['./src/test-setup.ts', 'vitest-leak-detector/setup'],
+    setupFiles: ['vitest-leak-detector/setup', './src/test-setup.ts'],
     reporters: ['default', 'vitest-leak-detector/reporter'],
     pool: 'forks',
   },
