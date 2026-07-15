@@ -9,7 +9,7 @@ export default defineConfig({
   format: ['esm', 'cjs'],
   dts: true,
   clean: true,
-  external: [/^vitest/],
+  external: [/^vitest/, /^@vitest\//],
   target: 'node24',
   sourcemap: false,
 })
