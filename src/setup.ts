@@ -1,8 +1,15 @@
-import { createHook } from 'node:async_hooks'
+import { AsyncLocalStorage, createHook } from 'node:async_hooks'
 import { subscribe } from 'node:diagnostics_channel'
 import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+// getFn/setFn come from @vitest/runner directly: the supported
+// TestRunner.setTestFn static is broken in vitest 4.1 (assigned the getter —
+// a silent no-op), and the vitest/suite re-export prints a deprecation
+// warning at import time in every worker. @vitest/runner must resolve to the
+// same instance vitest uses (peer dependency): the fn registry is a
+// module-level WeakMap, so a duplicate copy would wrap into a different map.
+import { getFn, setFn, type Test } from '@vitest/runner'
 import { beforeEach, afterEach, onTestFinished } from 'vitest'
 import type { LeakDetectorOptions, LeakRecord } from './types.js'
 import { shouldTrack, filterStack, hasLocatableFrame } from './utils.js'
@@ -35,22 +42,49 @@ interface RefCountedResource {
   fd?: number
 }
 
+// Identity of the test that owns a resource. Resources created in the test
+// body carry the exact owner via AsyncLocalStorage; resources created in user
+// beforeEach/afterEach hooks (outside the wrapped body) fall back to the last
+// beforeEach's owner — exact in sequential runs, best-effort under
+// it.concurrent. Reporting matches on the task object, not testName: names
+// are not describe-qualified, so same-named tests in different describe
+// blocks would collide on strings (#25).
+interface TestRef {
+  task: Test
+  testName: string
+  testFile: string
+}
+
 interface ResourceInfo {
   type: string
   stack: string
-  testName: string
-  testFile: string
+  owner: TestRef
   ref?: WeakRef<RefCountedResource>
 }
 
-let trackingEnabled = false
-let currentTestName = ''
-let currentTestFile = ''
+const testContext = new AsyncLocalStorage<TestRef>()
+const wrappedTasks = new WeakSet<Test>()
+// Tracking is active while any test is running. A Set instead of a boolean:
+// under it.concurrent one test finishing must not disable tracking for the
+// others (#25). Both the afterEach safety net and reportLeaks delete the
+// task — idempotent, like the double `= false` this replaces.
+const runningTasks = new Set<Test>()
+let fallbackOwner: TestRef | undefined
+// Suppresses tracking of the detector's own async operations (drain timers,
+// report promise): under it.concurrent they are created while other tests
+// keep tracking enabled and would be falsely reported as their leaks. Must
+// never stay set across an await — that would blind the detector to resources
+// other concurrent tests create in the meantime.
+let inInternalOp = false
 const activeResources = new Map<number, ResourceInfo>()
 
 const hook = createHook({
   init(asyncId, type, _triggerAsyncId, resource) {
-    if (!trackingEnabled || !shouldTrack(type, opts)) return
+    if (inInternalOp || runningTasks.size === 0 || !shouldTrack(type, opts)) return
+    // init runs synchronously in the creating execution context, so the store
+    // is the owner of whichever test body is executing right now.
+    const owner = testContext.getStore() ?? fallbackOwner
+    if (owner === undefined) return
     const stack = filterStack(new Error().stack ?? '', opts.stackDepth)
     // FILEHANDLE is created when the async open() completes, so V8 cuts the
     // stack at the async boundary and no user frame is ever present. Keep the
@@ -65,8 +99,7 @@ const hook = createHook({
     activeResources.set(asyncId, {
       type,
       stack,
-      testName: currentTestName,
-      testFile: currentTestFile,
+      owner,
       // WeakRef only: holding the resource strongly would itself leak memory.
       ref: refCheckable ? new WeakRef(refCounted) : undefined,
     })
@@ -86,14 +119,17 @@ hook.enable()
 // diagnostics_channel events and reported as the synthetic type FETCH.
 interface FetchInfo {
   stack: string
-  testName: string
-  testFile: string
+  owner: TestRef
 }
 
 const pendingFetches = new Map<object, FetchInfo>()
 
 function onFetchRequestCreate(message: unknown): void {
-  if (!trackingEnabled || !shouldTrack('FETCH', opts)) return
+  if (inInternalOp || runningTasks.size === 0 || !shouldTrack('FETCH', opts)) return
+  // The publish happens synchronously inside the user's fetch() call, so the
+  // ALS store identifies the calling test body.
+  const owner = testContext.getStore() ?? fallbackOwner
+  if (owner === undefined) return
   const { request } = message as { request: object }
   // undici's dispatch chain between the user's fetch() call and this publish
   // is deeper than the default stackTraceLimit of 10 — without raising it the
@@ -114,8 +150,7 @@ function onFetchRequestCreate(message: unknown): void {
   if (!hasLocatableFrame(stack)) return
   pendingFetches.set(request, {
     stack,
-    testName: currentTestName,
-    testFile: currentTestFile,
+    owner,
   })
 }
 
@@ -130,9 +165,28 @@ subscribe('undici:request:trailers', onFetchRequestSettled)
 subscribe('undici:request:error', onFetchRequestSettled)
 
 beforeEach(({ task }) => {
-  currentTestName = task.name
-  currentTestFile = task.file?.filepath ?? '<unknown>'
-  trackingEnabled = true
+  const owner: TestRef = {
+    task,
+    testName: task.name,
+    testFile: task.file?.filepath ?? '<unknown>',
+  }
+  fallbackOwner = owner
+  runningTasks.add(task)
+  // Bind the owner to the test body's async execution context: every resource
+  // created inside the body inherits it, no matter how many concurrent test
+  // bodies interleave (#25). Re-setting the fn from beforeEach works because
+  // the runner retrieves it only after all beforeEach hooks have run. Wrap
+  // once per task — beforeEach re-runs on retries/repeats and must not stack
+  // wrappers. (entering the context from this hook instead would not work:
+  // the test body resumes in the runner's continuation context, a sibling of
+  // this one.)
+  if (!wrappedTasks.has(task)) {
+    wrappedTasks.add(task)
+    const fn = getFn(task)
+    if (fn) {
+      setFn(task, () => testContext.run(owner, fn))
+    }
+  }
   // Report via onTestFinished, not a competing afterEach: under Vitest's
   // default sequence.hooks 'stack' mode, afterEach hooks run in reverse
   // registration order, so a report registered as afterEach would run before
@@ -141,42 +195,83 @@ beforeEach(({ task }) => {
   // that cleanup releases as a leak (#23). onTestFinished runs after all
   // afterEach hooks in every sequence.hooks mode, making the detector
   // independent of setupFiles order.
-  onTestFinished(reportLeaks)
+  onTestFinished(() => reportLeaks(task))
 })
 
 // Safety net for tests skipped dynamically via ctx.skip(), where
 // onTestFinished never fires but afterEach hooks still run.
-afterEach(() => {
-  trackingEnabled = false
+afterEach(({ task }) => {
+  runningTasks.delete(task)
 })
+
+// A resource is reported by the drain of the test that owns it. Entries owned
+// by a dynamically skipped test (ctx.skip()) are swept along too: their
+// onTestFinished never fires, so no drain of their own will ever claim them.
+// Entries owned by other tests must be left alone — a concurrent test that
+// just finished may have cleared resources whose async_hooks destroy has not
+// been emitted yet, and reporting them here would be a false positive.
+function isOwnedBy(owner: TestRef, task: Test): boolean {
+  return owner.task === task || owner.task.mode === 'skip'
+}
+
+function hasOwnedEntries(task: Test): boolean {
+  for (const [, resource] of activeResources) {
+    if (isOwnedBy(resource.owner, task)) return true
+  }
+  for (const [, fetchInfo] of pendingFetches) {
+    if (isOwnedBy(fetchInfo.owner, task)) return true
+  }
+  return false
+}
 
 // The callback must stay synchronous up to the early return: an async
 // function's implicit promise is created at invocation, before the first body
-// statement runs — if trackingEnabled were still true, with trackPromises it
-// would be tracked and reported as a phantom leak on every test (#24).
-// Tracking is switched off synchronously here; only then is the drain/report
-// promise created.
-function reportLeaks(): void | Promise<void> {
-  trackingEnabled = false
-  if (activeResources.size === 0 && pendingFetches.size === 0) return
-  return drainAndReport()
+// statement runs — if tracking were still active, with trackPromises it would
+// be tracked and reported as a phantom leak on every test (#24). This test's
+// tracking is switched off synchronously here; only then is the drain/report
+// promise created, shielded by inInternalOp from the tracking that other
+// concurrent tests keep enabled.
+function reportLeaks(task: Test): void | Promise<void> {
+  runningTasks.delete(task)
+  if (!hasOwnedEntries(task)) return
+  inInternalOp = true
+  const report = drainAndReport(task)
+  inInternalOp = false
+  return report
+}
+
+// Creates the drain timer with tracking suppressed: the promise and its
+// Timeout are detector internals, not test resources. The flag is cleared
+// before the await so other concurrent tests' resources stay tracked.
+function internalDelay(ms: number): Promise<void> {
+  inInternalOp = true
+  const delay = new Promise<void>((resolve) => setTimeout(resolve, ms))
+  inInternalOp = false
+  return delay
 }
 
 // clearTimeout()/close() emit async_hooks `destroy` on a later tick, so a
 // synchronous snapshot reports correctly-cleaned resources as leaks. Drain the
 // destroy queue (same approach as Jest's collectHandles) before reporting.
-async function drainAndReport(): Promise<void> {
+// Only this test's entries are reported and removed: under it.concurrent the
+// maps also hold other still-running tests' resources, which their own drains
+// will judge (#25). The report loop is synchronous, so two overlapping drains
+// cannot double-report an entry.
+async function drainAndReport(task: Test): Promise<void> {
   // The drains also give a user afterEach that aborts a fetch time for the
   // undici:request:error event to remove it from pendingFetches.
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  if (activeResources.size === 0 && pendingFetches.size === 0) return
-  await new Promise((resolve) => setTimeout(resolve, 30))
-  if (activeResources.size === 0 && pendingFetches.size === 0) return
+  await internalDelay(0)
+  if (!hasOwnedEntries(task)) return
+  await internalDelay(30)
+  if (!hasOwnedEntries(task)) return
 
   const timestamp = Date.now()
   let ndjson = ''
 
-  for (const [, resource] of activeResources) {
+  for (const [asyncId, resource] of activeResources) {
+    if (!isOwnedBy(resource.owner, task)) continue
+    activeResources.delete(asyncId)
+
     // A resource that was GC'd or reports hasRef() === false (unref'd or
     // already closed) no longer keeps the event loop alive — not a leak.
     if (resource.ref) {
@@ -188,37 +283,40 @@ async function drainAndReport(): Promise<void> {
     }
 
     const record: LeakRecord = {
-      testName: resource.testName,
-      testFile: resource.testFile,
+      testName: resource.owner.testName,
+      testFile: resource.owner.testFile,
       type: resource.type,
       stack: resource.stack,
       timestamp,
     }
 
     if (opts.warnInline) {
-      console.warn(`[leak-detector] "${resource.testName}": ${resource.type}\n${resource.stack}`)
+      console.warn(
+        `[leak-detector] "${resource.owner.testName}": ${resource.type}\n${resource.stack}`,
+      )
     }
 
     ndjson += JSON.stringify(record) + '\n'
   }
 
-  for (const [, fetchInfo] of pendingFetches) {
+  for (const [request, fetchInfo] of pendingFetches) {
+    if (!isOwnedBy(fetchInfo.owner, task)) continue
+    pendingFetches.delete(request)
+
     const record: LeakRecord = {
-      testName: fetchInfo.testName,
-      testFile: fetchInfo.testFile,
+      testName: fetchInfo.owner.testName,
+      testFile: fetchInfo.owner.testFile,
       type: 'FETCH',
       stack: fetchInfo.stack,
       timestamp,
     }
 
     if (opts.warnInline) {
-      console.warn(`[leak-detector] "${fetchInfo.testName}": FETCH\n${fetchInfo.stack}`)
+      console.warn(`[leak-detector] "${fetchInfo.owner.testName}": FETCH\n${fetchInfo.stack}`)
     }
 
     ndjson += JSON.stringify(record) + '\n'
   }
 
   if (ndjson !== '') writeFileSync(LEAK_FILE, ndjson, { flag: 'a' })
-  activeResources.clear()
-  pendingFetches.clear()
 }
